@@ -61,3 +61,4 @@
     "                labelbottom='off', right='off', left='off', labelleft='off')\n",
     "\n",
     "line, = ax.plot([0.5], [2.5], marker='o', color='g', markersize=60)"
+   

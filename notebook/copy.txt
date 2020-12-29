@@ -61,4 +61,32 @@
     "                labelbottom='off', right='off', left='off', labelleft='off')\n",
     "\n",
     "line, = ax.plot([0.5], [2.5], marker='o', color='g', markersize=60)"
-   
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "theta_0 = np.array([\n",
+    "    [np.nan, 1, 1, np.nan],\n",
+    "    [np.nan, 1, np.nan, 1],\n",
+    "    [np.nan, np.nan, 1, 1],\n",
+    "    [1, 1, 1, np.nan],\n",
+    "    [np.nan, np.nan, 1, 1],\n",
+    "    [1, np.nan, np.nan, np.nan],\n",
+    "    [1, np.nan, np.nan, np.nan],\n",
+    "    [1, 1, np.nan, np.nan]\n",
+    "])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "a, b = theta_0.shape\n",
+    "Q = np.random.rand(a,b) * theta_0"
+   ]

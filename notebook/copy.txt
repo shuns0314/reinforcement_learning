@@ -57,4 +57,9 @@
     "\n",
     "ax.set_xlim(0,3)\n",
     "ax.set_ylim(0,3)\n",
-
+    "plt.tick_params(axis='both', which='both', bottom='off', top='off',\n",
+    "                labelbottom='off', right='off', left='off', labelleft='off')\n",
+    "\n",
+    "line, = ax.plot([0.5], [2.5], marker='o', color='g', markersize=60)"
+   ]
+  },

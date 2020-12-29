@@ -1,0 +1,277 @@
+{
+ "metadata": {
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": 3
+  },
+  "orig_nbformat": 2
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2,
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import numpy as np\n",
+    "import matplotlib.pyplot as plt\n",
+    "import seaborn as sns\n",
+    "%matplotlib inline"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "fig = plt.figure(figsize=(5,5))\n",
+    "ax = plt.gca()\n",
+    "\n",
+    "plt.plot([1,1], [0,1], color='red', linewidth=2)\n",
+    "plt.plot([1,2], [2,2], color='red', linewidth=2)\n",
+    "plt.plot([2,2], [2,1], color='red', linewidth=2)\n",
+    "plt.plot([2,3], [1,1], color='red', linewidth=2)\n",
+    "\n",
+    "plt.text(0.5, 2.5, 'S0', size=14, ha='center')\n",
+    "plt.text(1.5, 2.5, 'S1', size=14, ha='center')\n",
+    "plt.text(2.5, 2.5, 'S2', size=14, ha='center')\n",
+    "plt.text(0.5, 1.5, 'S3', size=14, ha='center')\n",
+    "plt.text(1.5, 1.5, 'S4', size=14, ha='center')\n",
+    "plt.text(2.5, 1.5, 'S5', size=14, ha='center')\n",
+    "plt.text(0.5, 0.5, 'S6', size=14, ha='center')\n",
+    "plt.text(1.5, 0.5, 'S7', size=14, ha='center')\n",
+    "plt.text(2.5, 0.5, 'S8', size=14, ha='center')\n",
+    "plt.text(0.5, 2.3, 'START', size=14, ha='center')\n",
+    "plt.text(2.5, 0.3, 'GOAL', size=14, ha='center')\n",
+    "\n",
+    "ax.set_xlim(0,3)\n",
+    "ax.set_ylim(0,3)\n",
+    "plt.tick_params(axis='both', which='both', bottom='off', top='off',\n",
+    "                labelbottom='off', right='off', left='off', labelleft='off')\n",
+    "\n",
+    "line, = ax.plot([0.5], [2.5], marker='o', color='g', markersize=60)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "theta_0 = np.array([\n",
+    "    [np.nan, 1, 1, np.nan],\n",
+    "    [np.nan, 1, np.nan, 1],\n",
+    "    [np.nan, np.nan, 1, 1],\n",
+    "    [1, 1, 1, np.nan],\n",
+    "    [np.nan, np.nan, 1, 1],\n",
+    "    [1, np.nan, np.nan, np.nan],\n",
+    "    [1, np.nan, np.nan, np.nan],\n",
+    "    [1, 1, np.nan, np.nan]\n",
+    "])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "a, b = theta_0.shape\n",
+    "Q = np.random.rand(a,b) * theta_0"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def simple_comvert_into_pi_from_theta(theta):\n",
+    "    m, n = theta.shape\n",
+    "    pi = np.zeros((m, n))\n",
+    "    for i in range(m):\n",
+    "        pi[i, :] = theta[i, :] / np.nansum(theta[i, :])\n",
+    "    \n",
+    "    pi = np.nan_to_num(pi)\n",
+    "\n",
+    "    return pi"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "pi_0 = simple_comvert_into_pi_from_theta(theta_0)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "pi_0"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def get_action(s, Q, epsilon, pi_0):\n",
+    "    direction = ['up', 'right', 'down', 'left']\n",
+    "    if np.random.rand() < epsilon:\n",
+    "        next_direction = np.random.choice(direction, p=pi_0[s, :])\n",
+    "    else:\n",
+    "        next_direction = direction[np.nanargmax(Q[s, :])]\n",
+    "    \n",
+    "    if next_direction == 'up':\n",
+    "        action = 0\n",
+    "    elif next_direction == 'right':\n",
+    "        action = 1\n",
+    "    elif next_direction == 'down':\n",
+    "        action = 2\n",
+    "    elif next_direction == 'left':\n",
+    "        action = 3\n",
+    "    return action"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def get_s_next(s, a, Q, epsilon, pi_0):\n",
+    "    direction = ['up', 'right', 'down', 'left']\n",
+    "    next_direction = direction[a]\n",
+    "    \n",
+    "    if next_direction == 'up':\n",
+    "        s_next = s - 3\n",
+    "    elif next_direction == 'right':\n",
+    "        s_next = s + 1\n",
+    "    elif next_direction == 'down':\n",
+    "        s_next = s + 3\n",
+    "    elif next_direction == 'left':\n",
+    "        s_next = s - 1\n",
+    "    return s_next"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def Sarsa(s, a, r, s_next, a_next, Q, eta, gamma):\n",
+    "    if s_next == 8:\n",
+    "        Q[s, a] = Q[s, a] + eta * (r - Q[s, a])\n",
+    "    else:\n",
+    "        Q[s, a] = Q[s, a] + eta * (r + gamma * Q[s_next, a_next] - Q[s, a])\n",
+    "    return Q"
+   ]
+  },
+  {
+    "cell_type": "code",
+    "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+     "def goal_maze_ret_s_a_Q(Q, epsilon, eta, gamma, pi):\n",
+     "    s = 0\n",
+     "    a = a_next = get_action(s, Q, epsilon, pi)\n",
+     "    s_a_history = [[0, np.nan]]\n",
+     "\n",
+     "    while True:\n",
+     "        a = a_next\n",
+     "        s_a_history[-1][1] = a\n",
+     "        s_next = get_s_next(s, a, Q, epsilon, pi)\n",
+     "\n",
+     "        s_a_history.append([s_next, np.nan])\n",
+     "\n",
+     "        if s_next == 8:\n",
+     "            r = 1\n",
+     "            a_next = np.nan\n",
+     "        else:\n",
+     "            r = 0\n",
+     "            a_next = get_action(s_next, Q, epsilon, pi)\n",
+     "        \n",
+     "        Q = Sarsa(s, a, r, s_next, a_next, Q, eta, gamma)\n",
+     "\n",
+     "        if s_next == 8:\n",
+     "            break\n",
+     "        else:\n",
+     "            s = s_next\n",
+     "    return s_a_history, Q        "
+    ]
+   },
+   {
+    "cell_type": "code",
+    "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+     "sns.heatmap(Q)"
+    ]
+   },
+   {
+    "cell_type": "code",
+    "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+     "Q"
+    ]
+   },
+   {
+    "cell_type": "code",
+    "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+     "eta = 0.1\n",
+     "gamma = 0.9\n",
+     "epsilon = 0.5\n",
+     "v = np.nanmax(Q, axis=1)\n",
+     "is_continue = True\n",
+     "episode = 1\n",
+     "\n",
+     "while is_continue:\n",
+     "    print('episode:', episode)\n",
+     "    epsilon /= 2\n",
+     "    s_a_history, Q = goal_maze_ret_s_a_Q(Q, epsilon, eta, gamma, pi_0)\n",
+     "\n",
+     "    new_v = np.nanmax(Q, axis=1)\n",
+     "    print(np.sum(np.abs(new_v - v)))\n",
+     "\n",
+     "    print('step:', len(s_a_history)-1)\n",
+     "    v = new_v\n",
+     "\n",
+     "    episode += 1\n",
+     "    if episode > 100:\n",
+     "        break"
+    ]
+   },
+   {
+    "cell_type": "code",
+    "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+    "source": []
+   }
+  ]
+ }

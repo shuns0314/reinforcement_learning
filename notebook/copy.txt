@@ -90,3 +90,5 @@
     "a, b = theta_0.shape\n",
     "Q = np.random.rand(a,b) * theta_0"
    ]
+  },
+ 

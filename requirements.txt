@@ -13,6 +13,8 @@ cycler==0.10.0
 decorator==4.4.2
 defusedxml==0.6.0
 entrypoints==0.3
+ffmpeg==1.4
+flake8==3.8.4
 future==0.18.2
 gym==0.18.0
 ipykernel==5.4.2
@@ -54,7 +56,9 @@ ply==3.11
 prometheus-client==0.9.0
 prompt-toolkit==3.0.8
 ptyprocess==0.7.0
+pycodestyle==2.6.0
 pycparser==2.20
+pyflakes==2.2.0
 pyglet==1.5.0
 Pygments==2.7.3
 pylint==2.6.0

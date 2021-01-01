@@ -1,10 +1,14 @@
-version: '3'
+version: '2.4'
 services:
     app:
         container_name: ReinforcementLearning
+        runtime: nvidia
         build: .
         volumes: 
-            [.:/code]
-        ports:
-            - "5000:5000"
+            - .:/code
+            - /tmp/.X11-unix:/tmp/.X11-unix
+            - /root/.Xauthority:/root/.Xauthority
         tty: true
+        network_mode: "host"
+        environment:
+            - NVIDIA_VISIBLE_DEVICES=all

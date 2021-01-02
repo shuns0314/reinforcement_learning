@@ -79,23 +79,66 @@ class Brain:
             action = np.argmax(self.q_table[state][:])
         else:
             action = np.random.choice(self.num_actions)
+        return action
 
 
-def random_move():
-    frames = []
-    env = gym.make(ENV)
-    observation = env.reset()
+class Environment:
+    def __init__(self):
+        self.env = gym.make(ENV)
+        num_states = self.env.observation_space.shape[0]
+        num_actions = self.env.action_space.n
+        self.agent = Agent(num_states, num_actions)
 
-    for step in range(200):
-        frames.append(env.render(mode="rgb_array"))
-        action = np.random.choice(2)
-        observation, reward, done, info = env.step(action)
-    return frames
+    def run(self):
+        complete_episodes = 0
+        is_episode_final = False
+        frames = []
+
+        for episode in range(NUM_EPISODES):
+            observation = self.env.reset()
+
+            for step in range(MAX_STEPS):
+                if is_episode_final is True:
+                    frames.append(self.env.render(mode="rgb_array"))
+
+                action = self.agent.get_action(observation, episode)
+
+                observation_next, _, done, _ = self.env.step(action)
+
+                if done:
+                    if step < 195:
+                        reward = -1
+                        complete_episodes = 0
+                    else:
+                        reward = 1
+                        complete_episodes += 1
+                else:
+                    reward = 0
+
+                self.agent.update_Q_function(
+                    observation, action, reward, observation_next
+                )
+
+                observation = observation_next
+
+                if done:
+                    print(
+                        f"{episode} Episode: Finished after {step + 1} time steps"
+                    )
+                    break
+
+            if is_episode_final:
+                display_frames_as_gif(frames)
+                break
+
+            if complete_episodes >= 10:
+                print("success!!")
+                is_episode_final = True
 
 
 def main():
-    frames = random_move()
-    display_frames_as_gif(frames)
+    cartpole_env = Environment()
+    cartpole_env.run()
 
 
 if __name__ == "__main__":

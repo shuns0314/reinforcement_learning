@@ -29,6 +29,58 @@ def display_frames_as_gif(frames):
     # display(display_animation(anim, default_mode="loop"))
 
 
+class Agent:
+    def __init__(self, num_states, num_actions):
+        self.brain = Brain(num_states, num_actions)
+
+    def update_Q_function(self, observation, action, reward, observation_next):
+        self.brain.update_Q_table(
+            observation, action, reward, observation_next
+        )
+
+    def get_action(self, observation, step):
+        action = self.brain.decide_action(observation, step)
+        return action
+
+
+class Brain:
+    def __init__(self, num_states, num_actions):
+        self.num_actions = num_actions
+        self.q_table = np.random.uniform(
+            low=0, high=1, size=(NUM_DIZITIZED ** num_states, num_actions)
+        )
+
+    def bins(self, clip_min, clip_max, num):
+        return np.linspace(clip_min, clip_max, num + 1)[1:-1]
+
+    def digitize_state(self, observation):
+        cart_pos, cart_v, pole_angle, pole_v = observation
+        digitized = [
+            np.digitize(cart_pos, bins=self.bins(-2.4, 2.4, NUM_DIZITIZED)),
+            np.digitize(cart_v, bins=self.bins(-3.0, 3.0, NUM_DIZITIZED)),
+            np.digitize(pole_angle, bins=self.bins(-0.5, 0.5, NUM_DIZITIZED)),
+            np.digitize(pole_v, bins=self.bins(-2.0, 2.0, NUM_DIZITIZED)),
+        ]
+        return sum([x * (NUM_DIZITIZED ** i) for i, x in enumerate(digitized)])
+
+    def update_Q_table(self, observation, action, reward, observation_next):
+        state = self.digitize_state(observation)
+        state_next = self.digitize_state(observation_next)
+        Max_Q_next = max(self.q_table[state_next][:])
+        self.q_table[state, action] = self.q_table[state, action] + ETA * (
+            reward + GAMMA * Max_Q_next - self.q_table[state, action]
+        )
+
+    def decide_action(self, observation, episode):
+        state = self.digitize_state(observation)
+        epsilon = 0.5 * (1 / (episode + 1))
+
+        if epsilon <= np.random.uniform(0, 1):
+            action = np.argmax(self.q_table[state][:])
+        else:
+            action = np.random.choice(self.num_actions)
+
+
 def random_move():
     frames = []
     env = gym.make(ENV)
@@ -39,21 +91,6 @@ def random_move():
         action = np.random.choice(2)
         observation, reward, done, info = env.step(action)
     return frames
-
-
-def bins(clip_min, clip_max, num):
-    return np.linspace(clip_min, clip_max, num + 1)[1:-1]
-
-
-def digitize_state(observation):
-    cart_pos, cart_v, pole_angle, pole_v = observation
-    digitized = [
-        np.digitize(cart_pos, bins=bins(-2.4, 2.4, NUM_DIZITIZED)),
-        np.digitize(cart_v, bins=bins(-3.0, 3.0, NUM_DIZITIZED)),
-        np.digitize(pole_angle, bins=bins(-0.5, 0.5, NUM_DIZITIZED)),
-        np.digitize(pole_v, bins=bins(-2.0, 2.0, NUM_DIZITIZED)),
-    ]
-    return sum([x * (NUM_DIZITIZED ** i) for i, x in enumerate(digitized)])
 
 
 def main():

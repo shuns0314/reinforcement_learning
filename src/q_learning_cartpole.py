@@ -6,6 +6,10 @@ from matplotlib import animation
 
 ENV = "CartPole-v0"
 NUM_DIZITIZED = 6
+GAMMA = 0.99
+ETA = 0.5
+MAX_STEPS = 200
+NUM_EPISODES = 1000
 
 
 def display_frames_as_gif(frames):

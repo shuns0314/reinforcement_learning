@@ -1,5 +1,5 @@
 FROM python:3.8-buster
-RUN apt update && apt install -y zsh python-opengl \
+RUN apt update && apt install -y zsh python-opengl ffmpeg\
     && apt clean \
     && rm -rf /var/lib/apt/lists/* \
     && curl -L https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh | sh

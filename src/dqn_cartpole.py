@@ -59,14 +59,15 @@ class Agent:
     def __init__(self, num_states, num_actions):
         self.brain = Brain(num_states, num_actions)
 
-    def update_Q_function(self, observation, action, reward, observation_next):
-        self.brain.update_Q_table(
-            observation, action, reward, observation_next
-        )
+    def update_Q_function(self):
+        self.brain.replay()
 
-    def get_action(self, observation, step):
-        action = self.brain.decide_action(observation, step)
+    def get_action(self, state, step):
+        action = self.brain.decide_action(state, step)
         return action
+
+    def memories(self, state, action, state_next, reward):
+        self.brain.memory.push(state, action, state_next, reward)
 
 
 class Brain:
@@ -94,7 +95,9 @@ class Brain:
         state_batch = torch.cat(batch.state)
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
-        non_final_next_states = torch.cat([s for s in batch.next_state])
+        non_final_next_states = torch.cat(
+            [s for s in batch.next_state if s is not None]
+        )
 
         self.model.eval()
 
@@ -140,6 +143,7 @@ class Environment:
         self.agent = Agent(num_states, num_actions)
 
     def run(self):
+        episode_10_list = np.zeros(10)
         complete_episodes = 0
         is_episode_final = False
         frames = []
@@ -147,29 +151,41 @@ class Environment:
         for episode in range(NUM_EPISODES):
             observation = self.env.reset()
 
+            state = observation
+            state = torch.from_numpy(state).type(torch.FloatTensor)
+            state = torch.unsqueeze(state, 0)
+
             for step in range(MAX_STEPS):
                 if is_episode_final is True:
                     frames.append(self.env.render(mode="rgb_array"))
 
-                action = self.agent.get_action(observation, episode)
+                action = self.agent.get_action(state, episode)
 
-                observation_next, _, done, _ = self.env.step(action)
+                observation_next, _, done, _ = self.env.step(action.item())
 
                 if done:
+                    state_next = None
+                    episode_10_list = np.hstack(
+                        (episode_10_list[1:], step + 1)
+                    )
                     if step < 195:
-                        reward = -1
+                        reward = torch.FloatTensor([-1.0])
                         complete_episodes = 0
                     else:
-                        reward = 1
+                        reward = torch.FloatTensor([1.0])
                         complete_episodes += 1
                 else:
-                    reward = 0
+                    reward = torch.FloatTensor([0.0])
+                    state_next = observation_next
+                    state_next = torch.from_numpy(state_next).type(
+                        torch.FloatTensor
+                    )
+                    state_next = torch.unsqueeze(state_next, 0)
 
-                self.agent.update_Q_function(
-                    observation, action, reward, observation_next
-                )
+                self.agent.memories(state, action, state_next, reward)
+                self.agent.update_Q_function()
 
-                observation = observation_next
+                state = state_next
 
                 if done:
                     print(

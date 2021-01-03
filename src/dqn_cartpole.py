@@ -1,13 +1,16 @@
+from collections import namedtuple
+
 import numpy as np
 import matplotlib.pyplot as plt
 import gym
 
 from matplotlib import animation
 
+Transition = namedtuple(
+    "Transition", ("state", "action", "next_state", "reward")
+)
 ENV = "CartPole-v0"
-NUM_DIZITIZED = 6
 GAMMA = 0.99
-ETA = 0.5
 MAX_STEPS = 200
 NUM_EPISODES = 1000
 
@@ -24,9 +27,12 @@ def display_frames_as_gif(frames):
         plt.gcf(), animate, frames=len(frames), interval=50
     )
 
-    anim.save("movie_cartpole.gif")
-    # plt.show()
-    # display(display_animation(anim, default_mode="loop"))
+    anim.save("movie_cartpole_DQN.gif")
+
+
+class ReplayMemory:
+    def __init__(self, CAPACITY):
+        self.capacity = CAPACITY
 
 
 class Agent:

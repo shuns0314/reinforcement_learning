@@ -4,6 +4,9 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 import gym
+import torch
+from torch import nn, optim
+import torch.nn.functional as F
 
 from matplotlib import animation
 
@@ -14,6 +17,8 @@ ENV = "CartPole-v0"
 GAMMA = 0.99
 MAX_STEPS = 200
 NUM_EPISODES = 1000
+BATCH_SIZE = 32
+CAPACITY = 10000
 
 
 def display_frames_as_gif(frames):
@@ -40,7 +45,7 @@ class ReplayMemory:
     def push(self, state, action, state_next, reward):
         if len(self.memory) < self.capacity:
             self.memory.append(None)
-        self.memory[self.index] = Transition(state, action, next_state, reward)
+        self.memory[self.index] = Transition(state, action, state_next, reward)
         self.index = (self.index + 1) % self.capacity
 
     def sample(self, batch_size):
@@ -67,39 +72,63 @@ class Agent:
 class Brain:
     def __init__(self, num_states, num_actions):
         self.num_actions = num_actions
-        self.q_table = np.random.uniform(
-            low=0, high=1, size=(NUM_DIZITIZED ** num_states, num_actions)
+        self.memory = ReplayMemory(CAPACITY)
+
+        self.model = nn.Sequential()
+        self.model.add_module("fc1", nn.Linear(num_states, 32))
+        self.model.add_module("relu1", nn.ReLU())
+        self.model.add_module("fc2", nn.Linear(32, 32))
+        self.model.add_module("relu2", nn.ReLU())
+        self.model.add_module("fc3", nn.Linear(32, num_actions))
+
+        print(self.model)
+
+        self.optimizer = optim.Adam(self.model.parameters(), lr=0.0001)
+
+    def replay(self):
+        if len(self.memory) < BATCH_SIZE:
+            return
+
+        transitions = self.memory.sample(BATCH_SIZE)
+        batch = Transition(*zip(*transitions))
+        state_batch = torch.cat(batch.state)
+        action_batch = torch.cat(batch.action)
+        reward_batch = torch.cat(batch.reward)
+        non_final_next_states = torch.cat([s for s in batch.next_state])
+
+        self.model.eval()
+
+        state_action_values = self.model(state_batch).gather(1, action_batch)
+
+        non_final_mask = torch.ByteTensor(
+            tuple(map(lambda s: s is not None, batch.next_state))
+        )
+        next_state_values = torch.zeros(BATCH_SIZE)
+
+        next_state_values[non_final_mask] = (
+            self.model(non_final_next_states).max(1)[0].detach()
         )
 
-    def bins(self, clip_min, clip_max, num):
-        return np.linspace(clip_min, clip_max, num + 1)[1:-1]
+        expected_state_action_values = reward_batch + GAMMA * next_state_values
 
-    def digitize_state(self, observation):
-        cart_pos, cart_v, pole_angle, pole_v = observation
-        digitized = [
-            np.digitize(cart_pos, bins=self.bins(-2.4, 2.4, NUM_DIZITIZED)),
-            np.digitize(cart_v, bins=self.bins(-3.0, 3.0, NUM_DIZITIZED)),
-            np.digitize(pole_angle, bins=self.bins(-0.5, 0.5, NUM_DIZITIZED)),
-            np.digitize(pole_v, bins=self.bins(-2.0, 2.0, NUM_DIZITIZED)),
-        ]
-        return sum([x * (NUM_DIZITIZED ** i) for i, x in enumerate(digitized)])
+        self.model.train()
 
-    def update_Q_table(self, observation, action, reward, observation_next):
-        state = self.digitize_state(observation)
-        state_next = self.digitize_state(observation_next)
-        Max_Q_next = max(self.q_table[state_next][:])
-        self.q_table[state, action] = self.q_table[state, action] + ETA * (
-            reward + GAMMA * Max_Q_next - self.q_table[state, action]
+        loss = F.smooth_l1_loss(
+            state_action_values, expected_state_action_values.unsqueeze(1)
         )
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
 
-    def decide_action(self, observation, episode):
-        state = self.digitize_state(observation)
+    def decide_action(self, state, episode):
         epsilon = 0.5 * (1 / (episode + 1))
 
         if epsilon <= np.random.uniform(0, 1):
-            action = np.argmax(self.q_table[state][:])
+            self.model.eval()
+            with torch.no_grad():
+                action = self.model(state).max(1)[1].view(1, 1)
         else:
-            action = np.random.choice(self.num_actions)
+            action = torch.LongTensor([[random.randrange(self.num_actions)]])
         return action
 
 

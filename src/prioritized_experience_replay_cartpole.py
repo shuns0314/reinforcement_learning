@@ -56,12 +56,52 @@ class ReplayMemory:
         return len(self.memory)
 
 
+class TDerrorMemory:
+    def __init__(self, CAPACITY):
+        self.capacity = CAPACITY
+        self.memory = []
+        self.index = 0
+
+    def push(self, td_error):
+        if len(self.memory) < self.capacity:
+            self.memory.append(None)
+        self.memory[self.index] = td_error
+        self.index = (self.index + 1) % self.capacity
+
+    def get_prioritized_indexes(self, batch_size):
+        sum_absolute_td_error = np.sum(np.absolute(self.memory))
+        sum_absolute_td_error += TD_ERROR_EPSILON * len(self.memory)
+
+        rand_list = np.random.uniform(0, sum_absolute_td_error, batch_size)
+        rand_list = np.sort(rand_list)
+
+        indexes = []
+        idx = 0
+        tmp_sum_absolute_td_error = 0
+        for rand_num in rand_list:
+            while tmp_sum_absolute_td_error < rand_num:
+                tmp_sum_absolute_td_error += (
+                    abs(self.memory[idx]) + TD_ERROR_EPSILON
+                )
+                idx += 1
+            if idx > len(self.memory):
+                idx = len(self.memory) - 1
+            indexes.append(idx)
+        return indexes
+
+    def update_td_error(self, updated_td_errors):
+        self.memory = updated_td_errors
+
+    def __len__(self):
+        return len(self.memory)
+
+
 class Agent:
     def __init__(self, num_states, num_actions):
         self.brain = Brain(num_states, num_actions)
 
-    def update_Q_function(self):
-        self.brain.replay()
+    def update_q_function(self, episode):
+        self.brain.replay(episode)
 
     def get_action(self, state, step):
         action = self.brain.decide_action(state, step)
@@ -72,6 +112,12 @@ class Agent:
 
     def update_target_q_network(self):
         self.brain.update_target_q_network()
+
+    def memorize_td_error(self, td_error):
+        self.brain.td_error_memory.push(td_error)
+
+    def update_td_error_memory(self):
+        self.brain.update_td_error_memory()
 
 
 class Net(nn.Module):
@@ -100,8 +146,9 @@ class Brain:
         self.optimizer = optim.Adam(
             self.main_q_network.parameters(), lr=0.0001
         )
+        self.td_error_memory = TDerrorMemory(CAPACITY)
 
-    def replay(self):
+    def replay(self, episode):
         if len(self.memory) < BATCH_SIZE:
             return
         (
@@ -110,7 +157,7 @@ class Brain:
             self.action_batch,
             self.reward_batch,
             self.non_final_next_states,
-        ) = self.make_minibatch()
+        ) = self.make_minibatch(episode)
 
         self.expected_state_action_values = (
             self.get_expected_state_action_values()
@@ -132,8 +179,12 @@ class Brain:
     def update_target_q_network(self):
         self.target_q_network.load_state_dict(self.main_q_network.state_dict())
 
-    def make_minibatch(self):
-        transitions = self.memory.sample(BATCH_SIZE)
+    def make_minibatch(self, episode):
+        if episode < 30:
+            transitions = self.memory.sample(BATCH_SIZE)
+        else:
+            indexes = self.td_error_memory.get_prioritized_indexes(BATCH_SIZE)
+            transitions = [self.memory.memory[n] for n in indexes]
         batch = Transition(*zip(*transitions))
         state_batch = torch.cat(batch.state)
         action_batch = torch.cat(batch.action)
@@ -148,6 +199,47 @@ class Brain:
             reward_batch,
             non_final_next_states,
         )
+
+    def update_td_error_memory(self):
+        self.main_q_network.eval()
+        self.target_q_network.eval()
+
+        transitions = self.memory.memory
+        batch = Transition(*zip(*transitions))
+
+        state_batch = torch.cat(batch.state)
+        action_batch = torch.cat(batch.action)
+        reward_batch = torch.cat(batch.reward)
+        non_final_next_states = torch.cat(
+            [s for s in batch.next_state if s is not None]
+        )
+
+        state_action_values = self.main_q_network(state_batch).gather(
+            1, action_batch
+        )
+
+        non_final_mask = torch.ByteTensor(
+            tuple(map(lambda s: s is not None, batch.next_state))
+        )
+        next_state_values = torch.zeros(len(self.memory))
+        a_m = torch.zeros(len(self.memory)).type(torch.LongTensor)
+
+        a_m[non_final_mask] = (
+            self.main_q_network(non_final_next_states).max(1)[1].detach()
+        )
+
+        a_m_non_final_next_states = a_m[non_final_mask].view(-1, 1)
+
+        next_state_values[non_final_mask] = (
+            self.target_q_network(non_final_next_states)
+            .gather(1, a_m_non_final_next_states)
+            .detach()
+            .squeeze()
+        )
+        td_errods = (
+            reward_batch + GAMMA * next_state_values
+        ) - state_action_values.squeeze()
+        self.td_error_memory.memory = td_errods.detach().numpy().tolist()
 
     def get_expected_state_action_values(self):
         self.main_q_network.eval()
@@ -241,14 +333,19 @@ class Environment:
                     state_next = torch.unsqueeze(state_next, 0)
 
                 self.agent.memories(state, action, state_next, reward)
-                self.agent.update_Q_function()
+                self.agent.memorize_td_error(0)
+
+                self.agent.update_q_function(episode)
 
                 state = state_next
 
                 if done:
                     print(
-                        f"{episode} Episode: Finished after {step + 1} steps"
+                        f"{episode} Episode: Finished after {step + 1} steps:",
+                        episode_10_list.mean(),
                     )
+                    self.agent.update_td_error_memory()
+
                     if episode % 2 == 0:
                         self.agent.update_target_q_network()
                     break

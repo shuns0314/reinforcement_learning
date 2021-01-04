@@ -1,5 +1,4 @@
 from collections import namedtuple
-import random
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -17,8 +16,12 @@ ENV = "CartPole-v0"
 GAMMA = 0.99
 MAX_STEPS = 200
 NUM_EPISODES = 1000
-BATCH_SIZE = 32
-CAPACITY = 10000
+
+NUM_PROCESSES = 16
+NUM_ADVANCED_STEP = 5
+VALUE_LOSS_COEF = 0.5
+ENTROPY_COEF = 0.01
+MAX_GRAD_NORM = 0.5
 
 
 def display_frames_as_gif(frames):
@@ -36,41 +39,35 @@ def display_frames_as_gif(frames):
     anim.save("movie_cartpole_DDQN.gif")
 
 
-class ReplayMemory:
-    def __init__(self, CAPACITY):
-        self.capacity = CAPACITY
-        self.memory = []
+class RolloutStorage:
+    def __init__(self, num_steps, num_processes, obs_shape):
+        self.observations = torch.zeros(num_steps + 1, num_processes, 4)
+        self.masks = torch.ones(num_steps + 1, num_processes, 1)
+        self.rewards = torch.zeros(num_steps, num_processes, 1)
+        self.actions = torch.zeros(num_steps, num_processes, 1).long()
+
+        self.returns = torch.zeros(num_steps + 1, num_processes, 1)
         self.index = 0
 
-    def push(self, state, action, state_next, reward):
-        if len(self.memory) < self.capacity:
-            self.memory.append(None)
-        self.memory[self.index] = Transition(state, action, state_next, reward)
-        self.index = (self.index + 1) % self.capacity
+    def insert(self, current_obs, action, reward, mask):
+        self.observations[self.index + 1].copy_(current_obs)
+        self.masks[self.index + 1].copy_(mask)
+        self.rewards[self.index].copy_(reward)
+        self.actions[self.index].copy_(action)
 
-    def sample(self, batch_size):
-        return random.sample(self.memory, batch_size)
+        self.index = (self.index + 1) % NUM_ADVANCED_STEP
 
-    def __len__(self):
-        return len(self.memory)
+    def after_update(self):
+        self.observations[0].copy_(self.observations[-1])
+        self.masks[0].copy_(self.masks[-1])
 
-
-class Agent:
-    def __init__(self, num_states, num_actions):
-        self.brain = Brain(num_states, num_actions)
-
-    def update_Q_function(self):
-        self.brain.replay()
-
-    def get_action(self, state, step):
-        action = self.brain.decide_action(state, step)
-        return action
-
-    def memories(self, state, action, state_next, reward):
-        self.brain.memory.push(state, action, state_next, reward)
-
-    def update_target_q_network(self):
-        self.brain.update_target_q_network()
+    def compute_returns(self, next_value):
+        self.returns[-1] = next_value
+        for ad_step in reversed(range(self.rewards.size(0))):
+            self.returns[ad_step] = (
+                self.returns[ad_step + 1] * GAMMA * self.masks[ad_step + 1]
+                + self.rewards[ad_step]
+            )
 
 
 class Net(nn.Module):
@@ -78,187 +75,164 @@ class Net(nn.Module):
         super(Net, self).__init__()
         self.fc1 = nn.Linear(n_in, n_mid)
         self.fc2 = nn.Linear(n_mid, n_mid)
-        self.fc3 = nn.Linear(n_mid, n_out)
+        self.actor = nn.Linear(n_mid, n_out)
+        self.critic = nn.Linear(n_mid, 1)
 
     def forward(self, x):
         h1 = F.relu(self.fc1(x))
         h2 = F.relu(self.fc2(h1))
-        return self.fc3(h2)
+        critic_output = self.critic(h2)
+        actor_output = self.actor(h2)
+        return critic_output, actor_output
+
+    def act(self, x):
+        value, actor_output = self(x)
+        action_probs = F.softmax(actor_output, dim=1)
+        action = action_probs.multinomial(num_samples=1)
+        return action
+
+    def get_value(self, x):
+        value, _ = self(x)
+        return value
+
+    def evaluate_actions(self, x, actions):
+        value, actor_output = self(x)
+        log_probs = F.log_softmax(actor_output, dim=1)
+        action_log_probs = log_probs.gather(1, actions)
+
+        probs = F.softmax(actor_output, dim=1)
+        entropy = -(log_probs * probs).sum(-1).mean()
+
+        return value, action_log_probs, entropy
 
 
 class Brain:
-    def __init__(self, num_states, num_actions):
-        self.num_actions = num_actions
-        self.memory = ReplayMemory(CAPACITY)
+    def __init__(self, actor_critic: Net):
+        self.actor_critic = actor_critic
+        self.optimizer = optim.Adam(self.actor_critic.parameters(), lr=0.01)
 
-        n_in, n_mid, n_out = num_states, 32, num_actions
-        self.main_q_network = Net(n_in, n_mid, n_out)
-        self.target_q_network = Net(n_in, n_mid, n_out)
-        print(self.main_q_network)
+    def update(self, rollouts):
+        # obs_shape = rollouts.observations.size()[2:]
+        num_steps = NUM_ADVANCED_STEP
+        num_processes = NUM_PROCESSES
 
-        self.optimizer = optim.Adam(
-            self.main_q_network.parameters(), lr=0.0001
+        values, action_log_probs, entropy = self.actor_critic.evaluate_actions(
+            rollouts.observations[:-1].view(-1, 4),
+            rollouts.actions.view(-1, 1),
         )
 
-    def replay(self):
-        if len(self.memory) < BATCH_SIZE:
-            return
-        (
-            self.batch,
-            self.state_batch,
-            self.action_batch,
-            self.reward_batch,
-            self.non_final_next_states,
-        ) = self.make_minibatch()
+        values = values.view(num_steps, num_processes, 1)
+        action_log_probs = action_log_probs.view(num_steps, num_processes, 1)
 
-        self.expected_state_action_values = (
-            self.get_expected_state_action_values()
+        advantages = rollouts.returns[:-1] - values
+
+        value_loss = advantages.pow(2).mean()
+
+        action_gain = (action_log_probs * advantages.detach()).mean()
+
+        total_loss = (
+            value_loss * VALUE_LOSS_COEF - action_gain - entropy * ENTROPY_COEF
         )
 
-        self.update_main_q_network()
-
-    def update_main_q_network(self):
-        self.main_q_network.train()
-
-        loss = F.smooth_l1_loss(
-            self.state_action_values,
-            self.expected_state_action_values.unsqueeze(1),
-        )
+        self.actor_critic.train()
         self.optimizer.zero_grad()
-        loss.backward()
+        total_loss.backward()
+        nn.utils.clip_grad_norm_(self.actor_critic.parameters(), MAX_GRAD_NORM)
         self.optimizer.step()
-
-    def update_target_q_network(self):
-        self.target_q_network.load_state_dict(self.main_q_network.state_dict())
-
-    def make_minibatch(self):
-        transitions = self.memory.sample(BATCH_SIZE)
-        batch = Transition(*zip(*transitions))
-        state_batch = torch.cat(batch.state)
-        action_batch = torch.cat(batch.action)
-        reward_batch = torch.cat(batch.reward)
-        non_final_next_states = torch.cat(
-            [s for s in batch.next_state if s is not None]
-        )
-        return (
-            batch,
-            state_batch,
-            action_batch,
-            reward_batch,
-            non_final_next_states,
-        )
-
-    def get_expected_state_action_values(self):
-        self.main_q_network.eval()
-        self.target_q_network.eval()
-
-        self.state_action_values = self.main_q_network(
-            self.state_batch
-        ).gather(1, self.action_batch)
-
-        non_final_mask = torch.ByteTensor(
-            tuple(map(lambda s: s is not None, self.batch.next_state))
-        )
-        next_state_values = torch.zeros(BATCH_SIZE)
-
-        a_m = torch.zeros(BATCH_SIZE).type(torch.LongTensor)
-
-        a_m[non_final_mask] = (
-            self.main_q_network(self.non_final_next_states).max(1)[1].detach()
-        )
-
-        a_m_non_final_next_states = a_m[non_final_mask].view(-1, 1)
-
-        next_state_values[non_final_mask] = (
-            self.target_q_network(self.non_final_next_states)
-            .gather(1, a_m_non_final_next_states)
-            .detach()
-            .squeeze()
-        )
-        expected_state_action_values = (
-            self.reward_batch + GAMMA * next_state_values
-        )
-        return expected_state_action_values
-
-    def decide_action(self, state, episode):
-        epsilon = 0.5 * (1 / (episode + 1))
-
-        if epsilon <= np.random.uniform(0, 1):
-            self.main_q_network.eval()
-            with torch.no_grad():
-                action = self.main_q_network(state).max(1)[1].view(1, 1)
-        else:
-            action = torch.LongTensor([[random.randrange(self.num_actions)]])
-        return action
 
 
 class Environment:
-    def __init__(self):
-        self.env = gym.make(ENV)
-        num_states = self.env.observation_space.shape[0]
-        num_actions = self.env.action_space.n
-        self.agent = Agent(num_states, num_actions)
-
     def run(self):
-        episode_10_list = np.zeros(10)
-        complete_episodes = 0
-        is_episode_final = False
-        frames = []
 
-        for episode in range(NUM_EPISODES):
-            observation = self.env.reset()
+        envs = [gym.make(ENV) for i in range(NUM_PROCESSES)]
 
-            state = observation
-            state = torch.from_numpy(state).type(torch.FloatTensor)
-            state = torch.unsqueeze(state, 0)
+        n_in = envs[0].observation_space.shape[0]
+        n_out = envs[0].action_space.n
+        n_mid = 32
+        actor_critic = Net(n_in, n_mid, n_out)
 
-            for step in range(MAX_STEPS):
-                if is_episode_final is True:
-                    frames.append(self.env.render(mode="rgb_array"))
+        global_brain = Brain(actor_critic)
 
-                action = self.agent.get_action(state, episode)
+        obs_shape = n_in
+        current_obs = torch.zeros(NUM_PROCESSES, obs_shape)
+        rollouts = RolloutStorage(NUM_ADVANCED_STEP, NUM_PROCESSES, obs_shape)
+        episode_rewards = torch.zeros([NUM_PROCESSES, 1])
+        final_rewards = torch.zeros([NUM_PROCESSES, 1])
+        obs_np = np.zeros([NUM_PROCESSES, obs_shape])
+        reward_np = np.zeros([NUM_PROCESSES, 1])
+        done_np = np.zeros([NUM_PROCESSES, 1])
+        each_step = np.zeros(NUM_PROCESSES)
+        episode = 0
 
-                observation_next, _, done, _ = self.env.step(action.item())
+        obs = [envs[i].reset() for i in range(NUM_PROCESSES)]
+        obs = np.array(obs)
+        obs = torch.from_numpy(obs).float()
+        current_obs = obs
 
-                if done:
-                    state_next = None
-                    episode_10_list = np.hstack(
-                        (episode_10_list[1:], step + 1)
+        rollouts.observations[0].copy_(current_obs)
+
+        for j in range(NUM_EPISODES * NUM_PROCESSES):
+
+            for step in range(NUM_ADVANCED_STEP):
+                with torch.no_grad():
+                    action = actor_critic.act(rollouts.observations[step])
+                actions = action.squeeze(1).numpy()
+
+                for i in range(NUM_PROCESSES):
+
+                    obs_np[i], reward_np[i], done_np[i], _ = envs[i].step(
+                        actions[i]
                     )
-                    if step < 195:
-                        reward = torch.FloatTensor([-1.0])
-                        complete_episodes = 0
+
+                    if done_np[i]:
+                        print(
+                            f"{episode} Episode:"
+                            f"Finished after {each_step[i] + 1} steps"
+                        )
+                        episode += 1
+
+                        if each_step[i] < 195:
+                            reward_np[i] = -1.0
+                        else:
+                            reward_np[i] = 1.0
+                        each_step[i] = 0
+                        obs_np[i] = envs[i].reset()
+
                     else:
-                        reward = torch.FloatTensor([1.0])
-                        complete_episodes += 1
-                else:
-                    reward = torch.FloatTensor([0.0])
-                    state_next = observation_next
-                    state_next = torch.from_numpy(state_next).type(
-                        torch.FloatTensor
-                    )
-                    state_next = torch.unsqueeze(state_next, 0)
+                        reward_np[i] = 0
+                        each_step[i] += 1
 
-                self.agent.memories(state, action, state_next, reward)
-                self.agent.update_Q_function()
+                reward = torch.from_numpy(reward_np).float()
+                episode_rewards += reward
 
-                state = state_next
+                masks = torch.FloatTensor(
+                    [[0.0] if done_ else [1.0] for done_ in done_np]
+                )
+                final_rewards *= masks
 
-                if done:
-                    print(
-                        f"{episode} Episode: Finished after {step + 1} steps"
-                    )
-                    if episode % 2 == 0:
-                        self.agent.update_target_q_network()
-                    break
+                final_rewards += (1 - masks) * episode_rewards
 
-            if is_episode_final:
-                display_frames_as_gif(frames)
-                break
+                episode_rewards *= masks
 
-            if complete_episodes >= 10:
+                current_obs *= masks
+
+                obs = torch.from_numpy(obs_np).float()
+                current_obs = obs
+
+                rollouts.insert(current_obs, action.data, reward, masks)
+
+            with torch.no_grad():
+                next_value = actor_critic.get_value(
+                    rollouts.observations[-1]
+                ).detach()
+
+            rollouts.compute_returns(next_value)
+            global_brain.update(rollouts)
+            rollouts.after_update()
+
+            if final_rewards.sum().numpy() >= NUM_PROCESSES:
                 print("success!!")
-                is_episode_final = True
+                break
 
 
 def main():

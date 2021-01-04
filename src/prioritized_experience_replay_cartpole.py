@@ -19,6 +19,7 @@ MAX_STEPS = 200
 NUM_EPISODES = 1000
 BATCH_SIZE = 32
 CAPACITY = 10000
+TD_ERROR_EPSILON = 0.0001
 
 
 def display_frames_as_gif(frames):
@@ -33,7 +34,7 @@ def display_frames_as_gif(frames):
         plt.gcf(), animate, frames=len(frames), interval=50
     )
 
-    anim.save("gif/movie_cartpole_duerling_network.gif")
+    anim.save("gif/movie_cartpole_prioritized_experience_replay.gif")
 
 
 class ReplayMemory:
@@ -74,24 +75,16 @@ class Agent:
 
 
 class Net(nn.Module):
-    """NetworkをDDQNから変更."""
-
     def __init__(self, n_in, n_mid, n_out):
         super(Net, self).__init__()
         self.fc1 = nn.Linear(n_in, n_mid)
         self.fc2 = nn.Linear(n_mid, n_mid)
-        self.fc3_adv = nn.Linear(n_mid, n_out)
-        self.fc3_v = nn.Linear(n_mid, 1)
+        self.fc3 = nn.Linear(n_mid, n_out)
 
     def forward(self, x):
         h1 = F.relu(self.fc1(x))
         h2 = F.relu(self.fc2(h1))
-
-        adv = self.fc3_adv(h2)
-        val = self.fc3_v(h2).expand(-1, adv.size(1))
-
-        output = val + adv - adv.mean(1, keepdim=True).expand(-1, adv.size(1))
-        return output
+        return self.fc3(h2)
 
 
 class Brain:

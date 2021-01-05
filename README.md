@@ -8,7 +8,7 @@
 ## 手順
 host PCではじめに以下のコマンドを実行。
 
-    host localhost:
+    xhost localhost:
 
 ## 教材
 [つくりながら学ぶ！深層強化学習](https://book.mynavi.jp/ec/products/detail/id=90706)

@@ -7,7 +7,6 @@ async-generator==1.10
 atari-py @ git+https://github.com/Kojoley/atari-py.git@86a1e05c0a95e9e6233c3a413521fdb34ca8a089
 attrs==20.3.0
 backcall==0.2.0
--e git+https://github.com/openai/baselines.git@ea25b9e8b234e6ee1bca43083f8f3cf974143998#egg=baselines
 black==20.8b1
 bleach==3.2.1
 cachetools==4.2.0

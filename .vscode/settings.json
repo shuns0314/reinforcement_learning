@@ -1,6 +1,6 @@
 {
     "python.linting.pylintEnabled": false,
-    "python.linting.flake8Enabled": true,
+    "python.linting.flake8Enabled": false,
     "python.linting.lintOnSave": true,
     "python.linting.flake8Args": [
         "--ignore=E203,W503,W504"
@@ -11,5 +11,7 @@
         "--line-length=79"
     ],
     "editor.formatOnSave": true,
-    "editor.formatOnPaste": false
+    "editor.formatOnPaste": false,
+    "python.linting.mypyEnabled": true,
+    "python.linting.enabled": true
 }

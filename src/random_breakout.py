@@ -19,7 +19,7 @@ def display_frames_as_gif(frames):
         plt.gcf(), animate, frames=len(frames), interval=50
     )
 
-    anim.save("git/movie_breakout_random.gif")
+    anim.save("gif/movie_breakout_random.gif")
 
 
 def random_move():
